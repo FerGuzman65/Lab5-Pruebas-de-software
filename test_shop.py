@@ -106,3 +106,25 @@ def test_tax_rate_from_config(monkeypatch, order):
 
     assert order_processed["payment"]["status"] == "approved"
     assert fake_gateway.charged_amount == 1069.2
+
+
+# CP-03 | monkeypatch.delattr() | RF-12
+# Elimina la dependencia discount_service para simular que el servicio
+# de descuentos no esta disponible; el calculo debe continuar sin descuento.
+# Entradas: Teclado $800 x1, Mouse $300 x1 | tax_rate = 0.16
+# Esperado: subtotal 1100, descuento 0, impuesto 176.0, total 1276.0
+def test_order_without_discount_service(monkeypatch, order):
+
+    service = OrderService(CONFIG)
+
+    monkeypatch.delattr(
+        service,
+        "discount_service"
+    )
+
+    result = service.calculate_total(order)
+
+    assert result["subtotal"] == 1100
+    assert result["discount"] == 0
+    assert result["tax"] == 176.0
+    assert result["total"] == 1276.0
