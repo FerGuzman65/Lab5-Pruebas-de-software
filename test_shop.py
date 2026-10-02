@@ -4,91 +4,30 @@ from shop import CONFIG
 import pytest
 
 
-@pytest.mark.system
-def test_order_normal():
-
-    products = [
-        {
-            "name": "Teclado",
-            "price": 800,
-            "quantity": 1
-        },
-        {
-            "name": "Mouse",
-            "price": 300,
-            "quantity": 1
-        }
-    ]
-
-    order = Order(products)
-
-    service = OrderService(CONFIG)
-
-    order_processed = service.process_order(order)
-
-    result = service.calculate_total(order)
-
-    assert order_processed['payment']['status'] == 'approved'
-    assert result["subtotal"] == 1100
-    assert result["discount"] == 110
-    assert result["tax"] == 158.4
-    assert result["total"] == 1148.4
-
-
-def test_order_setatt(monkeypatch):
-
-    products = [
-        {
-            "name": "Teclado",
-            "price": 800,
-            "quantity": 1
-        }
-    ]
-
-    order = Order(products)
-
-    service = OrderService(CONFIG)
-
-    order_processed = service.process_order(order)
-
-    result = service.calculate_total(order)
-
-    assert order_processed['payment']['status'] == 'approved'
-    assert result["subtotal"] == 1100
-    assert result["discount"] == 110
-    assert result["tax"] == 158.4
-    assert result["total"] == 1148.4
-
-@pytest.mark.system1
-
 class FakePaymentGateway:
+    """Doble de prueba que sustituye al servicio externo de pagos (RF-11).
+
+    La API real no esta disponible, por lo que se aisla el componente y
+    se registra el monto cobrado para poder verificarlo.
+    """
+
+    def __init__(self):
+        self.charged_amount = None
+        self.calls = 0
 
     def charge(self, amount):
+        self.calls += 1
+        self.charged_amount = amount
+
         return {
             "status": "approved",
-            "transaction_id": "fake_transaction_id",
-            "amount": amount
-
+            "amount": amount,
+            "currency": CONFIG["currency"]
         }
-     monkeypatch.setattr(service, "payment_gateway", FakePaymentGateway())
-    
-    order = Order(products)
 
-    service = OrderService(CONFIG)
 
-    order_processed = service.process_order(order)
-
-    result = service.calculate_total(order)
-
-    assert result["subtotal"] == 1100
-    assert result["discount"] == 110
-    assert result["tax"] == 158.4
-    assert result["total"] == 1148.4
-
-    
-@pytest.mark.system
-def test_order_setitem(monkeypatch):
-
+@pytest.fixture
+def order():
     products = [
         {
             "name": "Teclado",
@@ -101,49 +40,34 @@ def test_order_setitem(monkeypatch):
             "quantity": 1
         }
     ]
-    
-    order = Order(products)
+
+    return Order(products)
+
+
+# CP-01 | monkeypatch.setattr() | RF-10, RF-11, RF-14
+# Sustituye la dependencia payment_gateway por un doble de prueba.
+# Entradas: Teclado $800 x1, Mouse $300 x1 | tax_rate = 0.16
+# Esperado: subtotal 1100, descuento 110, impuesto 158.4, total 1148.4
+#           y pago aprobado por el monto total de la orden.
+def test_order_normal(monkeypatch, order):
 
     service = OrderService(CONFIG)
-    monkeypatch.setitem(CONFIG, "tax_rate", 0.2)
+
+    fake_gateway = FakePaymentGateway()
+
+    monkeypatch.setattr(
+        service,
+        "payment_gateway",
+        fake_gateway
+    )
+
     order_processed = service.process_order(order)
 
-    result = service.calculate_total(order)
+    assert order_processed["payment"]["status"] == "approved"
+    assert order_processed["order"]["subtotal"] == 1100
+    assert order_processed["order"]["discount"] == 110
+    assert order_processed["order"]["tax"] == 158.4
+    assert order_processed["order"]["total"] == 1148.4
 
-    assert order_processed['payment']['status'] == 'approved'
-    assert result["subtotal"] == 800
-    assert result["discount"] == 40
-    assert result["tax"] == 152
-    assert result["total"] == 1148.4
-
-
-@pytest.mark.system
-def test_order_delattr(monkeypatch):
-
-    products = [
-        {
-            "name": "Teclado",
-            "price": 800,
-            "quantity": 1
-        },
-        {
-            "name": "Mouse",
-            "price": 300,
-            "quantity": 1
-        }
-    ]
-    
-    order = Order(products)
-
-    service = OrderService(CONFIG)
-    monkeypatch.delattr(service, "discount_service")
-    order_processed = service.process_order(order)
-
-    result = service.calculate_total(order)
-
-    assert order_processed['payment']['status'] == 'approved'
-    assert result["subtotal"] == 800
-    assert result["discount"] == 40
-    assert result["tax"] == 152
-    assert result["total"] == 1148.4
-
+    assert fake_gateway.calls == 1
+    assert fake_gateway.charged_amount == 1148.4
