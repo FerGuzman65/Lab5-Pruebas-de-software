@@ -1,4 +1,4 @@
-ONFIG = {
+CONFIG = {
     "tax_rate": 0.16,
     "currency": "MXN"
 }
